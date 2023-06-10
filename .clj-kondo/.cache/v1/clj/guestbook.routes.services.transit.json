@@ -1,0 +1,1 @@
+["^ ","~$service-routes",["^ ","~:row",19,"~:col",1,"~:fixed-arities",["~#set",[0]],"~:name","^0","~:ns","~$guestbook.routes.services","~:top-ns","^7","~:arities",["^ ","~i0",["^ ","~:ret","~:vector","~:arglist-str","[]"]],"~:type","~:fn"],"~:filename","/home/douglas/projects/clojure/web-dev-clojure/guestbook/src/clj/guestbook/routes/services.clj"]

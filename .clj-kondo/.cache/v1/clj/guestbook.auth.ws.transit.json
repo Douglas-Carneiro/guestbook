@@ -1,0 +1,1 @@
+["^ ","~$authorized?",["^ ","~:row",5,"~:col",1,"~:fixed-arities",["~#set",[2]],"~:name","^0","~:ns","~$guestbook.auth.ws","~:top-ns","^7","~:arities",["^ ","~i2",["^ ","~:ret","~:boolean","~:arglist-str","[roles-by-id msg]"]],"~:type","~:fn"],"~:filename","/home/douglas/projects/clojure/web-dev-clojure/guestbook/src/clj/guestbook/auth/ws.clj"]
