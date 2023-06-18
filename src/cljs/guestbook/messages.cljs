@@ -3,7 +3,8 @@
    [clojure.string :as string]
    [reagent.core :as r]
    [re-frame.core :as rf]
-   [guestbook.validation :refer [validate-message]]))
+   [guestbook.validation :refer [validate-message]]
+   [guestbook.components :refer [text-input textarea-input image]]))
 
 ;; All code is copied in from guestbook.core
 (rf/reg-event-fx
@@ -43,20 +44,26 @@
        "Loading Messages"
        "Refresh Messages")]))
 
+(defn message [{:keys [timestamp message name author avatar] :as m}]
+  [:article.media
+   [:figure.media-left
+    [image (or avatar "/img/avatar-default.png") 128 128]]
+   [:div.media-content>div.content
+    [:time (.toLocaleString timestamp)]
+    [:p message]
+    [:p " - " name
+     " <"
+     (if author
+       [:a {:href (str "/user/" author)} (str "@" author)]
+       [:span.is-italic "account not found"])
+     ">"]]])
+
 (defn message-list [messages]
   [:ul.messages
-   (for [{:keys [timestamp message name author]} @messages]
-     ^{:key timestamp}
+   (for [m @messages]
+     ^{:key (:timestamp m)}
      [:li
-      [:time (.toLocaleString timestamp)]
-      [:p message]
-      [:p " - " name
-       ;; Add the author (e.g. <@username>)
-       " <"
-       (if author
-         [:a {:href (str "/user/" author)} (str "@" author)]
-         [:span.is-italic "account not found"])
-       ">"]])])
+      [message m]])])
 
 (rf/reg-event-db
  :message/add
@@ -174,47 +181,14 @@
                                    message
                                    (string/join error))]))
 
-(defn text-input [{val   :value
-                   attrs :attrs
-                   :keys [on-save]}]
-  (let [draft (r/atom nil)
-        value (r/track #(or @draft @val ""))]
-    (fn []
-      [:input.input
-       (merge attrs
-              {:type :text
-               :on-focus #(reset! draft (or @val ""))
-               :on-blur (fn []
-                          (on-save (or @draft ""))
-                          (reset! draft nil))
-               :on-change #(reset! draft (.. % -target -value))
-               :value @value})])))
-
-(defn textarea-input [{val   :value
-                       attrs :attrs
-                       :keys [on-save]}]
-  (let [draft (r/atom nil)
-        value (r/track #(or @draft @val ""))]
-    (fn []
-      [:textarea.textarea
-       (merge attrs
-              {:on-focus #(reset! draft (or @val ""))
-               :on-blur (fn []
-                          (on-save (or @draft ""))
-                          (reset! draft nil))
-               :on-change #(reset! draft (.. % -target -value))
-               :value @value})])))
-
 (defn message-form []
   [:div
    [errors-component :server-error]
-   [errors-component :unauthorized "Please log in before posting"]
+   [errors-component :unauthorized "Please log in before posting."]
    [:div.field
     [:label.label {:for :name} "Name"]
-    [errors-component :name]
-    [text-input {:attrs {:name :name}
-                 :value (rf/subscribe [:form/field :name])
-                 :on-save #(rf/dispatch [:form/set-field :name %])}]]
+    (let [{:keys [login profile]} @(rf/subscribe [:auth/user])]
+      (:display-name profile login))]
    [:div.field
     [:label.label {:for :message} "Message"]
     [errors-component :message]

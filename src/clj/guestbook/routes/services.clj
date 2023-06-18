@@ -14,7 +14,13 @@
    [guestbook.auth :as auth]
    [spec-tools.data-spec :as ds]
    [guestbook.auth.ring :refer [wrap-authorized get-roles-from-match]]
-   [clojure.tools.logging :as log]))
+   [clojure.tools.logging :as log]
+   [guestbook.author :as author]
+   [clojure.java.io :as io]
+   [guestbook.db.core :as db]
+   [guestbook.media :as media]
+   [clojure.spec.alpha :as s]
+   [clojure.string :as string]))
 
 (defn service-routes []
   ["/api"
@@ -74,7 +80,9 @@
              [{:id pos-int?
                :name string?
                :message string?
-               :timestamp inst?}]}}}
+               :timestamp inst?
+               :author (ds/maybe string?)
+               :avatar (ds/maybe string?)}]}}}
           :handler
           (fn [_]
             (response/ok (msg/message-list)))}}]
@@ -88,7 +96,9 @@
           [{:id pos-int?
             :name string?
             :message string?
-            :timestamp inst?}]}}}
+            :timestamp inst?
+            :author (ds/maybe string?)
+            :avatar (ds/maybe string?)}]}}}
        :handler
        (fn [{{{:keys [author]} :path} :parameters}]
          (response/ok (msg/messages-by-author author)))}}]]
@@ -98,8 +108,7 @@
      :post
      {:parameters
       {:body ;; Data Spec for Request body parameters
-       {:name string?
-        :message string?}}
+       {:message string?}}
       :responses
       {200
        {:body map?}
@@ -194,7 +203,7 @@
               (->
                (response/ok)
                (assoc :session nil)))}}]
-   
+
    ["/session"
     {::auth/roles (auth/roles :session/get)
      :get
@@ -205,10 +214,173 @@
          {:identity
           (ds/maybe
            {:login string?
-            :created_at inst?})}}}}
+            :created_at inst?
+            :profile map?})}}}}
       :handler
       (fn [{{:keys [identity]} :session}]
         (response/ok {:session
                       {:identity
                        (not-empty
-                        (select-keys identity [:login :created_at]))}}))}}]])
+                        (select-keys identity [:login :created_at :profile]))}}))}}]
+
+   ["/author/:login"
+    {::auth/roles (auth/roles :author/get)
+     :get {:parameters
+           {:path {:login string?}}
+           :responses
+           {200
+            {:body map?}
+            500
+            {:errors map?}}
+           :handler
+           (fn [{{{:keys [login]} :path} :parameters}]
+             (response/ok (author/get-author login)))}}]
+
+   ["/my-account"
+    ["/set-profile"
+     {::auth/roles (auth/roles :account/set-profile!)
+      :post {:parameters
+             {:body
+              {:profile map?}}
+             :responses
+             {200
+              {:body map?}
+              500
+              {:errors map?}}
+             :handler
+             (fn [{{{:keys [profile]} :body} :parameters
+                   {:keys [identity] :as session} :session}]
+               (try
+                 (let [identity
+                       (author/set-author-profile (:login identity) profile)]
+                   (update (response/ok {:success true})
+                           :session
+                           assoc :identity identity))
+                 (catch Exception e
+                   (log/error e)
+                   (response/internal-server-error
+                    {:errors {:server-error
+                              ["Failed to set profile!"]}}))))}}]
+    ["/media/upload"
+     {::auth/roles (auth/roles :media/upload)
+      :post
+      {:parameters {:multipart (s/map-of keyword? multipart/temp-file-part)}
+       :handler
+       (fn [{{mp :multipart}
+             :parameters
+             {:keys [identity]} :session}]
+         (log/info "Media upload route called")
+         (log/info (str "Multipart: " mp))
+         (response/ok
+          (reduce-kv
+           (fn [acc name {:keys [size content-type] :as file-part}]
+             (cond
+               (> size (* 5 1024 1024))
+               (do
+                 (log/error "File " name
+                            " exceeded max size of 5 MB. (size: " size ")")
+                 (update acc :failed-uploads (fnil conj []) name))
+               (re-matches #"image/.*" content-type)
+               (-> acc
+                   (update :files-uploaded conj name)
+                   (assoc name
+                          (str "/api/media/"
+                               (cond
+                                 (= name :avatar)
+                                 (media/insert-image-returning-name
+                                  (assoc file-part
+                                         :filename
+                                         (str (:login identity) "_avatar.png"))
+                                  {:width 128
+                                   :height 128
+                                   :owner (:login identity)})
+                                 (= name :banner)
+                                 (media/insert-image-returning-name
+                                  (assoc file-part
+                                         :filename
+                                         (str (:login identity) "_banner.png"))
+                                  {:width 1200
+                                   :height 400
+                                   :owner (:login identity)})
+                                 :else
+                                 (media/insert-image-returning-name
+                                  (update
+                                   file-part
+                                   :filename
+                                   string/replace #"\.[^\.]+$" ".png")
+                                  {:max-width 800
+                                   :max-height 2000
+                                   :owner (:login identity)})))))
+               :else
+               (do
+                 (log/error "Unsupported file type" content-type "for file" name)
+                 (update acc :failed-uploads (fnil conj []) name))))
+           {:files-uploaded []}
+           mp)))}}]
+    ["/change-password"
+     {::auth/roles (auth/roles :account/set-profile!)
+      :post {:parameters
+             {:body
+              {:old-password string?
+               :new-password string?
+               :confirm-password string?}}
+             :handler
+             (fn [{{{:keys [old-password
+                            new-password
+                            confirm-password]} :body} :parameters
+                   {:keys [identity]}                 :session}]
+               (if
+                (not= new-password confirm-password)
+                 (response/bad-request
+                  {:error :mismatch
+                   :message "Password and Confirm fields must match!"})
+                 (try
+                   (auth/change-password! (:login identity)
+                                          old-password
+                                          new-password)
+                   (response/ok {:success true})
+                   (catch clojure.lang.ExceptionInfo e
+                     (if (= (:guestbook/error-id (ex-data e))
+                            ::auth/authentication-failure)
+                       (response/unauthorized
+                        {:error :incorrect-password
+                         :message "Old Password is incorrect, please try again."})
+                       (throw e))))))}}]
+    ["/delete-account"
+     {::auth/roles (auth/roles :account/set-profile!)
+      :post
+      {:parameters
+       {:body {:login string?
+               :password string?}}
+       :handler
+       (fn [{{{:keys [login password]} :body} :parameters
+             {{user :login} :identity} :session
+             :as req}]
+         (if (not= login user)
+           (response/bad-request
+            {:message "Login must match the current user!"})
+           (try
+             (auth/delete-account! user password)
+             (-> (response/ok)
+                 (assoc :session
+                        (select-keys
+                         (:session req)
+                         [:ring.middleware.anti-forgery/anti-forgery-token])))
+             (catch clojure.lang.ExceptionInfo e
+               (if (= (:guestbook/error-id (ex-data e))
+                      ::auth/authentication-failure)
+                 (response/unauthorized
+                  {:error :incorrect-password
+                   :message "Password is incorrect, please try again!"})
+                 (throw e))))))}}]]
+
+   ["/media/:name"
+    {::auth/roles (auth/roles :media/get)
+     :get {:parameters
+           {:path {:name string?}}
+           :handler (fn [{{{:keys [name]} :path} :parameters}]
+                      (if-let [{:keys [data type]} (db/get-file {:name name})]
+                        (-> (io/input-stream data)
+                            (response/ok)
+                            (response/content-type type))
+                        (response/not-found)))}}]])

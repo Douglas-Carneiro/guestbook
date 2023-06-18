@@ -4,6 +4,7 @@
    [reagent.core :as r]
    [re-frame.core :as rf]
    [guestbook.modals :as m]
+   [reitit.frontend.easy :as rtfe]
    [ajax.core :refer [POST]]))
 
 (rf/reg-event-fx
@@ -109,11 +110,15 @@
 (defn logout-button []
   [:button.button
    {:on-click #(POST "/api/logout"
-                 {:handler (fn [_] (rf/dispatch [:auth/handle-logout]))})}
+                 {:handler (fn [_] 
+                             (rf/dispatch [:auth/handle-logout])
+                             ;; Redirects to the home page to prevent the profile page from loading infinitely
+                             (rtfe/push-state :guestbook.routes.app/home))})}
    "Log Out"])
 
 (defn nameplate [{:keys [login]}]
-  [:button.button.is-primary
+  [:a.button.is-primary
+   {:href (rtfe/href :guestbook.routes.app/profile)}
    login])
 
 (defn register-button []

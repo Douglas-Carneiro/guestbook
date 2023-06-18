@@ -19,7 +19,7 @@
  :app/initialize
  (fn [_ _]
    {:db {:session/loading? true}
-    :dispatch-n [:session/load]}))
+    :dispatch [:session/load]}))
 
 (def router
   (rtf/router
