@@ -56,4 +56,6 @@
    :author/get #{:any}
    :account/set-profile! #{:authenticated}
    :media/get #{:any}
-   :media/upload #{:authenticated}})
+   :media/upload #{:authenticated}
+   :message/get #{:any}
+   :message/boost! #{:authenticated}})

@@ -84,8 +84,11 @@
                :author (ds/maybe string?)
                :avatar (ds/maybe string?)}]}}}
           :handler
-          (fn [_]
-            (response/ok (msg/message-list)))}}]
+          (fn [{{{:keys [boosts]
+                  :or {boosts true}} :query} :parameters}]
+            (response/ok (if boosts
+                           (msg/timeline)
+                           (msg/message-list))))}}]
     ["/by/:author"
      {:get
       {:parameters {:path {:author string?}}
@@ -100,39 +103,91 @@
             :author (ds/maybe string?)
             :avatar (ds/maybe string?)}]}}}
        :handler
-       (fn [{{{:keys [author]} :path} :parameters}]
-         (response/ok (msg/messages-by-author author)))}}]]
+       (fn [{{{:keys [author]} :path
+              {:keys [boosts]
+               :or {boosts true}} :query} :parameters}]
+         (response/ok
+          (if boosts
+            (msg/timeline-for-poster author)
+            (msg/messages-by-author author))))}}]]
 
    ["/message"
-    {::auth/roles (auth/roles :message/create!)
-     :post
+    ["/:post-id"
      {:parameters
-      {:body ;; Data Spec for Request body parameters
-       {:message string?}}
-      :responses
-      {200
-       {:body map?}
-       400
-       {:body map?}
-       500
-       {:errors map?}}
-      :handler
-      (fn [{{params :body} :parameters
-            {:keys [identity]} :session}]
-        (try
-          (->> (msg/save-message! identity params)
-               (assoc {:status :ok} :post)
-               (response/ok))
-          (catch Exception e
-            (let [{id :guestbook/error-id
-                   errors :errors} (ex-data e)]
-              (case id
-                :validation
-                (response/bad-request {:errors errors})
-                ;;else
-                (response/internal-server-error
-                 {:errors
-                  {:server-error ["Failed to save message!"]}}))))))}}]
+      {:path
+       {:post-id pos-int?}}}
+     [""
+      {::auth/roles (auth/roles :message/get)
+       :get {:responses
+             {200 {:message map?}
+    
+                  ;; e.g. author has blocked you or has private account
+              403 {:message string?}
+    
+              404 {:message string?}
+    
+              500 {:message string?}}
+    
+             :handler
+             (fn [{{{:keys [post-id]} :path} :parameters}]
+               (if-some [post (msg/get-message post-id)]
+                 (response/ok
+                  {:message post})
+                 (response/not-found
+                  {:message "Post Not Found"})))}}
+          ;
+      ]
+     ["/boost"
+      {::auth/roles (auth/roles :message/boost!)
+       :post {:parameters {:body {:poster (ds/maybe string?)}}
+              :responses
+              {200 {:body map?}
+               400 {:message string?}}
+              :handler
+              (fn [{{{:keys [post-id]} :path
+                     {:keys [poster]} :body} :parameters
+                    {:keys [identity]} :session}]
+                (try
+                  (let [post (msg/boost-message identity post-id poster)]
+                    (response/ok {:status :ok
+                                  :post post}))
+                  (catch Exception e
+                    (response/bad-request
+                     {:message
+                      (str "Could not boost message: " post-id
+                           " as " (:login identity) (.printStackTrace e))}))))}}]]
+
+    [""
+     {::auth/roles (auth/roles :message/create!)
+      :post
+      {:parameters
+       {:body ;; Data Spec for Request body parameters
+        {:message string?
+         (ds/opt :parent) (ds/maybe int?)}}
+       :responses
+       {200
+        {:body map?}
+        400
+        {:body map?}
+        500
+        {:errors map?}}
+       :handler
+       (fn [{{params :body} :parameters
+             {:keys [identity]} :session}]
+         (try
+           (->> (msg/save-message! identity params)
+                (assoc {:status :ok} :post)
+                (response/ok))
+           (catch Exception e
+             (let [{id :guestbook/error-id
+                    errors :errors} (ex-data e)]
+               (case id
+                 :validation
+                 (response/bad-request {:errors errors})
+                     ;;else
+                 (response/internal-server-error
+                  {:errors
+                   {:server-error ["Failed to save message!"]}}))))))}}]]
    ["/login"
     {::auth/roles (auth/roles :auth/login)
      :post {:parameters
