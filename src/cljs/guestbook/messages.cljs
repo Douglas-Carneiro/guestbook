@@ -447,3 +447,17 @@
  (fn [_ _]
    {:dispatch-n [[:form/clear-fields]
                  [:message/clear-media]]}))
+
+(rf/reg-event-fx
+ :messages/load-by-tag
+ (fn [{:keys [db]} [_ tag]]
+   {:db (assoc db
+               :messages/loading? true
+               :messages/filter
+               {:message #(re-find
+                           (re-pattern (str "(?<=\\s|^)#" tag "(?=\\s|$)"))
+                           %)}
+               :messages/list nil)
+    :ajax/get {:url (str "/api/messages/tagged/" tag)
+               :success-path [:messages]
+               :success-event [:messages/set]}}))

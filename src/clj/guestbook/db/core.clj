@@ -7,7 +7,8 @@
    [jsonista.core :as json]
    [conman.core :as conman]
    [mount.core :refer [defstate]]
-   [guestbook.config :refer [env]])
+   [guestbook.config :refer [env]]
+   [guestbook.db.util])
   
   (:import org.postgresql.util.PGobject
            clojure.lang.IPersistentMap
