@@ -110,6 +110,7 @@
           (if boosts
             (msg/timeline-for-poster author)
             (msg/messages-by-author author))))}}]
+
     ["/tagged/:tag"
      {:get
       {:parameters {:path {:tag string?}}
@@ -130,7 +131,29 @@
          (if boosts
            (response/ok
             (msg/get-feed-for-tag tag))
-           (response/not-implemented {:message "Tags only support boosts."})))}}]]
+           (response/not-implemented {:message "Tags only support boosts."})))}}]
+
+    ["/feed"
+     {::auth/roles (auth/roles :messages/feed)
+      :get
+      {:responses
+       {200
+        {:body ;; Data Spec for response body
+         {:messages
+          [{:id pos-int?
+            :name string?
+            :message string?
+            :timestamp inst?
+            :author (ds/maybe string?)
+            :avatar (ds/maybe string?)}]}}}
+       :handler
+       (fn [{{{:keys [boosts]
+               :or {boosts true}} :query} :parameters
+             {{{:keys [subscriptions]} :profile} :identity} :session}]
+         (if boosts
+           (response/ok
+            (msg/get-feed subscriptions))
+           (response/not-implemented {:message "Feed only supports boosts."})))}}]]
 
    ["/message"
     ["/:post-id"
