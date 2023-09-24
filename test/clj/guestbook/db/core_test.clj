@@ -17,15 +17,12 @@
     (migrations/migrate ["migrate"] (select-keys env [:database-url]))
     (f)))
 
-(deftest test-messages
+(deftest test-users
   (jdbc/with-transaction [t-conn *db* {:rollback-only true}]
-    (is (= 1 (db/save-message!
-              t-conn
-              {:name "Bob"
-               :message "Hello, World"}
-              {:connection t-conn})))
-    (is (= {:name "Bob"
-            :message "Hello, World"}
-           (-> (db/get-messages t-conn {})
-               (first)
-               (select-keys [:name :message]))))))
+    (is (= 1 (db/create-user!* t-conn
+                               {:login "foo"
+                                :password "password"})))
+    (is (= {:login "foo"
+            :profile {}}
+           (dissoc (db/get-user* t-conn
+                                 {:login "foo"}) :created_at)))))
